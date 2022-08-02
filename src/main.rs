@@ -1,11 +1,17 @@
-//! Example OAuth (Discord) implementation.
+//! Example OAuth (Google) implementation.
 //!
-//! 1) Create a new application at <https://discord.com/developers/applications>
-//! 2) Visit the OAuth2 tab to get your CLIENT_ID and CLIENT_SECRET
-//! 3) Add a new redirect URI (for this example: `http://127.0.0.1:3000/auth/authorized`)
-//! 4) Run with the following (replacing values appropriately):
+//! 1) In a new or existing Google Cloud Platform project, navigate to APIs and Services
+//!    and select Credentials.
+//! 2) If you have an existing application, find it under OAuth2.0 Client IDs and click
+//!    Edit Oauth client to get your CLIENT_ID and CLIENT_SECRET.
+//! 3) Make sure the OAuth consent screen is set to External to make it available outside
+//!    your organization.
+//! 4) If you are creating a new application, select Web application as application type.
+//! 5) Add a new redirect URI (for this example: `http://127.0.0.1:3000/auth/authorized`)
+//!    under Authorized Redirect URIs.
+//! 6) Run with the following (replacing values appropriately):
 //! ```not_rust
-//! CLIENT_ID=REPLACE_ME CLIENT_SECRET=REPLACE_ME cargo run -p example-oauth
+//! CLIENT_ID=REPLACE_ME CLIENT_SECRET=REPLACE_ME cargo run
 //! ```
 
 use async_session::{MemoryStore, Session, SessionStore};
@@ -35,7 +41,7 @@ static COOKIE_NAME: &str = "SESSION";
 async fn main() {
     tracing_subscriber::registry()
         .with(tracing_subscriber::EnvFilter::new(
-            std::env::var("RUST_LOG").unwrap_or_else(|_| "example_oauth=debug".into()),
+            std::env::var("RUST_LOG").unwrap_or_else(|_| "axum_example_oauth_google=debug".into()),
         ))
         .with(tracing_subscriber::fmt::layer())
         .init();
@@ -47,7 +53,7 @@ async fn main() {
 
     let app = Router::new()
         .route("/", get(index))
-        .route("/auth/discord", get(discord_auth))
+        .route("/auth/google", get(google_auth))
         .route("/auth/authorized", get(login_authorized))
         .route("/protected", get(protected))
         .route("/logout", get(logout))
@@ -68,20 +74,19 @@ fn oauth_client() -> BasicClient {
     // *"CLIENT_ID"     "REPLACE_ME";
     // *"CLIENT_SECRET" "REPLACE_ME";
     //  "REDIRECT_URL"  "http://127.0.0.1:3000/auth/authorized";
-    //  "AUTH_URL"      "https://discord.com/api/oauth2/authorize?response_type=code";
-    //  "TOKEN_URL"     "https://discord.com/api/oauth2/token";
+    //  "AUTH_URL"      "https://accounts.google.com/o/oauth2/v2/auth";
+    //  "TOKEN_URL"     "https://www.googleapis.com/oauth2/v4/token";
 
     let client_id = env::var("CLIENT_ID").expect("Missing CLIENT_ID!");
     let client_secret = env::var("CLIENT_SECRET").expect("Missing CLIENT_SECRET!");
     let redirect_url = env::var("REDIRECT_URL")
         .unwrap_or_else(|_| "http://127.0.0.1:3000/auth/authorized".to_string());
 
-    let auth_url = env::var("AUTH_URL").unwrap_or_else(|_| {
-        "https://discord.com/api/oauth2/authorize?response_type=code".to_string()
-    });
+    let auth_url = env::var("AUTH_URL")
+        .unwrap_or_else(|_| "https://accounts.google.com/o/oauth2/v2/auth".to_string());
 
     let token_url = env::var("TOKEN_URL")
-        .unwrap_or_else(|_| "https://discord.com/api/oauth2/token".to_string());
+        .unwrap_or_else(|_| "https://www.googleapis.com/oauth2/v4/token".to_string());
 
     BasicClient::new(
         ClientId::new(client_id),
@@ -92,14 +97,13 @@ fn oauth_client() -> BasicClient {
     .set_redirect_uri(RedirectUrl::new(redirect_url).unwrap())
 }
 
-// The user data we'll get back from Discord.
-// https://discord.com/developers/docs/resources/user#user-object-user-structure
+// The user data we'll get back from Google.
 #[derive(Debug, Serialize, Deserialize)]
 struct User {
-    id: String,
-    avatar: Option<String>,
-    username: String,
-    discriminator: String,
+    sub: String,
+    picture: Option<String>,
+    email: String,
+    name: String,
 }
 
 // Session is optional
@@ -107,19 +111,20 @@ async fn index(user: Option<User>) -> impl IntoResponse {
     match user {
         Some(u) => format!(
             "Hey {}! You're logged in!\nYou may now access `/protected`.\nLog out with `/logout`.",
-            u.username
+            u.name
         ),
-        None => "You're not logged in.\nVisit `/auth/discord` to do so.".to_string(),
+        None => "You're not logged in.\nVisit `/auth/google` to do so.".to_string(),
     }
 }
 
-async fn discord_auth(Extension(client): Extension<BasicClient>) -> impl IntoResponse {
+async fn google_auth(Extension(client): Extension<BasicClient>) -> impl IntoResponse {
     let (auth_url, _csrf_token) = client
         .authorize_url(CsrfToken::new_random)
-        .add_scope(Scope::new("identify".to_string()))
+        .add_scope(Scope::new("profile".to_string()))
+        .add_scope(Scope::new("email".to_string()))
         .url();
 
-    // Redirect to Discord's oauth service
+    // Redirect to Google's oauth service
     Redirect::to(&auth_url.to_string())
 }
 
@@ -166,11 +171,10 @@ async fn login_authorized(
         .await
         .unwrap();
 
-    // Fetch user data from discord
+    // Fetch user data from Google
     let client = reqwest::Client::new();
     let user_data: User = client
-        // https://discord.com/developers/docs/resources/user#get-current-user
-        .get("https://discordapp.com/api/users/@me")
+        .get("https://www.googleapis.com/oauth2/v3/userinfo")
         .bearer_auth(token.access_token().secret())
         .send()
         .await
@@ -200,7 +204,7 @@ struct AuthRedirect;
 
 impl IntoResponse for AuthRedirect {
     fn into_response(self) -> Response {
-        Redirect::temporary("/auth/discord").into_response()
+        Redirect::temporary("/auth/google").into_response()
     }
 }
 
@@ -239,4 +243,3 @@ where
         Ok(user)
     }
 }
-
