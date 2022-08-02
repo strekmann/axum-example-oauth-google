@@ -1,0 +1,19 @@
+[package]
+name = "axum-example-oauth-google"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+async-session = "3.0.0"
+axum = { version="0.5", features = ["headers"] }
+headers = "0.3"
+http = "0.2"
+oauth2 = "4.1"
+# Use Rustls because it makes it easier to cross-compile on CI
+reqwest = { version = "0.11", default-features = false, features = ["rustls-tls", "json"] }
+serde = { version = "1.0", features = ["derive"] }
+tokio = { version = "1.0", features = ["full"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
